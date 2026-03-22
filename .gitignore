@@ -1,0 +1,24 @@
+# ===== Backend =====
+petmily-server/build/
+petmily-server/out/
+petmily-server/.gradle/
+petmily-server/bin/
+petmily-server/*.jar
+petmily-server/src/main/resources/application.yml
+petmily-server/src/main/resources/application-*.yml
+
+# ===== Frontend =====
+petmily-client/node_modules/
+petmily-client/dist/
+petmily-client/.env
+
+# ===== IDE =====
+.idea/
+*.iml
+.vscode/
+*.suo
+*.user
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
