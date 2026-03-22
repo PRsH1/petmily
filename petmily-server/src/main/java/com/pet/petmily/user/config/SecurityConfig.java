@@ -9,6 +9,7 @@ import com.pet.petmily.user.filter.CustomJsonUsernamePasswordAuthenticationFilte
 import com.pet.petmily.user.handler.LoginSuccessHandler;
 import com.pet.petmily.user.handler.LoginFailureHandler;
 import com.pet.petmily.user.service.LoginService;
+import com.pet.petmily.user.service.LoginAttemptService;
 
 //소셜 로그인 패키지
 import com.pet.petmily.user.oauth2.handler.OAuth2LoginFailureHandler;
@@ -29,6 +30,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.logout.LogoutFilter;
 
+import javax.servlet.http.HttpServletResponse;
+
 /**
  * 인증은 CustomJsonUsernamePasswordAuthenticationFilter에서 authenticate()로 인증된 사용자로 처리
  * JwtAuthenticationProcessingFilter는 AccessToken, RefreshToken 재발급
@@ -42,6 +45,7 @@ public class SecurityConfig {
     private final JwtService jwtService;
     private final MemberRepository memberRepository;
     private final ObjectMapper objectMapper;
+    private final LoginAttemptService loginAttemptService;
 
     //OAuth부분
     private final OAuth2LoginSuccessHandler oAuth2LoginSuccessHandler;
@@ -71,6 +75,7 @@ public class SecurityConfig {
                 .antMatchers("/user/**").hasAnyRole("USER","ADMIN") // user으로 시작하는 경로는 USER,ADMIN 권한만 접근 가능
                 .antMatchers("/index", "/login").permitAll() // index, login 페이지는 모두 접근 가능
                 .antMatchers("/sign-up/**").permitAll() // sign-up 페이지는 모두 접근 가능
+                .antMatchers("/sign-up/verify-email", "/sign-up/resend-verification").permitAll()
                 .antMatchers("/oauth/**").permitAll() // api로 시작하는 경로는 모두 접근 가능
                 .antMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-resources/**").permitAll()
 
@@ -86,7 +91,16 @@ public class SecurityConfig {
 
                 .successHandler(oAuth2LoginSuccessHandler) // 동의하고 계속하기를 눌렀을 때 Handler 설정
                 .failureHandler(oAuth2LoginFailureHandler) // 소셜 로그인 실패 시 핸들러 설정
-                .userInfoEndpoint().userService(customOAuth2UserService);
+                .userInfoEndpoint().userService(customOAuth2UserService)
+                .and()
+                .and()
+                .exceptionHandling()
+                .authenticationEntryPoint((request, response, authException) -> {
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    response.setCharacterEncoding("UTF-8");
+                    response.setContentType("text/plain;charset=UTF-8");
+                    response.getWriter().write("인증이 필요합니다.");
+                });
 
 
 
@@ -133,9 +147,7 @@ public class SecurityConfig {
      */
     @Bean
     public LoginSuccessHandler loginSuccessHandler() {
-
-
-        return new LoginSuccessHandler(jwtService, memberRepository);
+        return new LoginSuccessHandler(jwtService, memberRepository, loginAttemptService);
     }
 
     /**
@@ -143,8 +155,7 @@ public class SecurityConfig {
      */
     @Bean
     public LoginFailureHandler loginFailureHandler() {
-
-        return new LoginFailureHandler();
+        return new LoginFailureHandler(loginAttemptService);
     }
 
     /**

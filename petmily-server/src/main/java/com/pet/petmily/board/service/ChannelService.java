@@ -8,11 +8,15 @@ import com.pet.petmily.board.repository.CategoryRepository;
 import com.pet.petmily.board.repository.ChannelRepository;
 import com.pet.petmily.board.repository.FavoriteRepository;
 import com.pet.petmily.board.repository.PostRepository;
+import com.pet.petmily.board.response.PageResponse;
 import com.pet.petmily.user.entity.Member;
 import com.pet.petmily.user.repository.MemberRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +25,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @RequiredArgsConstructor
 @Service
@@ -176,6 +181,26 @@ public class ChannelService {
 
     public List<Channel> searchChannels(String query) {
         return channelRepository.findAllByChannelNameContaining(query);
+    }
+
+    public PageResponse<ChannelDTO> getChannelPaged(int page, int size) {
+        Pageable pageable = PageRequest.of(page, size);
+        Page<Channel> channelPage = channelRepository.findAllByOrderByCreateDateDesc(pageable);
+        List<ChannelDTO> channelDtos = channelPage.getContent().stream()
+                .map(ChannelDTO::toDto)
+                .collect(Collectors.toList());
+        return new PageResponse<>("조회 성공", "채널 목록 페이징 조회", channelDtos,
+                channelPage.getNumber(), channelPage.getTotalPages(), channelPage.getTotalElements(), channelPage.getSize());
+    }
+
+    public PageResponse<ChannelDTO> searchChannelsPaged(String query, int page, int size) {
+        Pageable pageable = PageRequest.of(page, size);
+        Page<Channel> channelPage = channelRepository.findAllByChannelNameContainingOrderByCreateDateDesc(query, pageable);
+        List<ChannelDTO> channelDtos = channelPage.getContent().stream()
+                .map(ChannelDTO::toDto)
+                .collect(Collectors.toList());
+        return new PageResponse<>("검색 성공", "채널 검색 결과", channelDtos,
+                channelPage.getNumber(), channelPage.getTotalPages(), channelPage.getTotalElements(), channelPage.getSize());
     }
 }
 

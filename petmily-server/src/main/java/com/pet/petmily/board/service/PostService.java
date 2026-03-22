@@ -6,10 +6,13 @@ import com.pet.petmily.board.dto.PostDTO;
 import com.pet.petmily.board.entity.Channel;
 import com.pet.petmily.board.entity.Favorite;
 import com.pet.petmily.board.entity.Post;
+import com.pet.petmily.board.entity.PostLike;
 import com.pet.petmily.board.repository.CategoryRepository;
 import com.pet.petmily.board.repository.ChannelRepository;
 import com.pet.petmily.board.repository.FavoriteRepository;
+import com.pet.petmily.board.repository.PostLikeRepository;
 import com.pet.petmily.board.repository.PostRepository;
+import com.pet.petmily.board.response.PageResponse;
 
 import com.pet.petmily.comment.entity.Comment;
 import com.pet.petmily.comment.repository.CommentRepository;
@@ -23,6 +26,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.minidev.json.annotate.JsonIgnore;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +38,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @RequiredArgsConstructor
 @Slf4j
@@ -48,6 +55,7 @@ public class PostService {
     private final ReportRepository reportRepository;
     private final MemberRepository memberRepository;
     private final FavoriteRepository favoriteRepository;
+    private final PostLikeRepository postLikeRepository;
 
     //게시판 전체 조회
     @Transactional(readOnly = true)
@@ -158,21 +166,26 @@ public class PostService {
 
     //게시글 좋아요
     @Transactional
-    public Object likePost(Long channelId, Long postId) {
-        Optional<Post> postOptional = postRepository.findById(postId);
-        if (postOptional.isPresent()) {
-            Post post = postOptional.get();
-            if (post.getChannel().getChannelId() != channelId) {
-                return ("실패 : 채널에 해당 게시글이 없습니다 다른 채널을 조회해보세요 = " + postId);
-            }
-            post.setLikePost(post.getLikePost() + 1);
-            postRepository.save(post);
-            log.info("좋아요 증가");
-            log.info("좋아요:{}", post.getLikePost());
-            return "성공 : 좋아요가 추가되었습니다, 현재 좋아요 수 : " + post.getLikePost();
-        } else {
-            return ("실패 : 해당 게시글이 없습니다 = " + postId);
+    public Object likePost(Long channelId, Long postId, Long memberId) {
+        Post post = postRepository.findById(postId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "해당 게시글이 없습니다: " + postId));
+        if (post.getChannel().getChannelId() != channelId) {
+            return "실패 : 채널에 해당 게시글이 없습니다 = " + postId;
         }
+        Member member = memberRepository.findById(memberId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "유저가 존재하지 않습니다."));
+
+        Optional<PostLike> existing = postLikeRepository.findByPostAndMember(post, member);
+        if (existing.isPresent()) {
+            postLikeRepository.delete(existing.get());
+            post.setLikePost(Math.max(0, post.getLikePost() - 1));
+            postRepository.save(post);
+            return "좋아요가 취소되었습니다. 현재 좋아요 수: " + post.getLikePost();
+        }
+        postLikeRepository.save(new PostLike(post, member));
+        post.setLikePost(post.getLikePost() + 1);
+        postRepository.save(post);
+        return "좋아요가 추가되었습니다. 현재 좋아요 수: " + post.getLikePost();
     }
 
     //게시글 신고
@@ -225,73 +238,6 @@ public class PostService {
         }
 
     }
-    //게시글 즐겨찾기 등록
-//    @Transactional
-//    public Object bookmarkPost(Long postId, Member member) {
-//        Optional<Post> postOptional = postRepository.findById(postId);
-//        if (postOptional.isPresent()) {
-//            Post post = postOptional.get();
-//            if(favoriteRepository.findByPostAndMember(post, member).isPresent()){
-//                return "실패 : 이미 즐겨찾기에 추가된 게시글입니다.";
-//            }
-//            Favorite favorite = new Favorite(Channel, member);
-//            favoriteRepository.save(favorite);
-//            return "성공 : 즐겨찾기가 추가되었습니다.";
-//
-//
-//        }
-//
-//        return "실패 : 해당 게시글이 없습니다.";
-//    }
-
-    //게시글 즐겨찾기 삭제
-//    @Transactional
-//    public Object deleteBookmarkPost(Long postId, Member member) {
-//        Optional<Post> postOptional = postRepository.findById(postId);
-//        if (postOptional.isPresent()) {
-//            Post post = postOptional.get();
-//            Optional<Favorite> favoriteOptional = favoriteRepository.findByPostAndMember(post, member);
-//            if (favoriteOptional.isPresent()) {
-//                Favorite favorite = favoriteOptional.get();
-//                favoriteRepository.delete(favorite);
-//                return "성공 : 즐겨찾기가 삭제되었습니다.";
-//            }
-//            return "실패 : 즐겨찾기에 추가되지 않은 게시글입니다.";
-//        }
-//        return "실패 : 해당 게시글이 없습니다.";
-//    }
-
-    //즐겨찾기한 게시글 조회
-
-//    public List<PostDTO> getBookmarkPost(Member member) {
-//        List<Favorite> favorites = favoriteRepository.findByMember(member);
-//        List<PostDTO> postDTOList = new ArrayList<>();
-//        for (Favorite favorite : favorites) {
-//            Post post = favorite.getPost();
-//            PostDTO postDTO = new PostDTO();
-//
-//            postDTO.setCreateDate(post.getCreateDate());
-//            postDTO.setLastModifiedDate(post.getLastModifiedDate());
-//            postDTO.setId(post.getPostId());
-//            postDTO.setTitle(post.getTitle());
-//            postDTO.setContent(post.getContent());
-//            postDTO.setUrl(post.getUrl());
-//            postDTO.setImagePath(post.getImagePath());
-//            postDTO.setLikePost(post.getLikePost());
-//            postDTO.setHit(post.getHit());
-//
-//
-//            postDTO.setChannelId(post.getChannel().getChannelId());
-//            postDTO.setMemberId(post.getMember().getId());
-//            postDTO.setNickname(post.getMember().getNickname());
-//            postDTO.setChannelName(post.getChannel().getChannelName());
-//            postDTO.setCommentCount(post.getComments().size());
-//            postDTOList.add(postDTO);
-//        }
-//        return postDTOList;
-//
-//    }
-
 
     //내가 쓴 게시글 조회
     public List<PostDTO> getMyPost(Member member) {
@@ -318,8 +264,31 @@ public class PostService {
         }
         return postDTOList;
     }
+
     @Transactional
     public List<Post> searchPosts(String query) {
         return postRepository.findByTitleContaining(query);
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<PostDTO> getAllPostPaged(Long channelId, int page, int size) {
+        Pageable pageable = PageRequest.of(page, size);
+        Page<Post> postPage = postRepository.findAllByChannel_ChannelIdOrderByCreateDateDesc(channelId, pageable);
+        List<PostDTO> postDtos = postPage.getContent().stream()
+                .map(PostDTO::toDto)
+                .collect(Collectors.toList());
+        return new PageResponse<>("조회 성공", "채널별 게시물 페이징 조회", postDtos,
+                postPage.getNumber(), postPage.getTotalPages(), postPage.getTotalElements(), postPage.getSize());
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<PostDTO> searchPostsPaged(String query, int page, int size) {
+        Pageable pageable = PageRequest.of(page, size);
+        Page<Post> postPage = postRepository.findByTitleContainingOrderByCreateDateDesc(query, pageable);
+        List<PostDTO> postDtos = postPage.getContent().stream()
+                .map(PostDTO::toDto)
+                .collect(Collectors.toList());
+        return new PageResponse<>("검색 성공", "게시글 검색 결과", postDtos,
+                postPage.getNumber(), postPage.getTotalPages(), postPage.getTotalElements(), postPage.getSize());
     }
 }

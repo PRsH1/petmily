@@ -2,8 +2,10 @@ package com.pet.petmily.user.service;
 
 import com.pet.petmily.user.dto.MemberSignUpDto;
 import com.pet.petmily.user.dto.MemberUpdateDTO;
+import com.pet.petmily.user.entity.EmailVerificationToken;
 import com.pet.petmily.user.entity.Member;
 import com.pet.petmily.user.entity.Role;
+import com.pet.petmily.user.repository.EmailVerificationTokenRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -26,6 +28,8 @@ import java.util.Objects;
 public class MemberService {
     private final MemberRepository memberRepository;
     private final PasswordEncoder passwordEncoder;
+    private final EmailVerificationTokenRepository emailVerificationTokenRepository;
+    private final EmailService emailService;
 
 
 
@@ -52,13 +56,14 @@ public class MemberService {
                 .status(true)
                 .socialType(memberSignUpDto.getSocialType())
                 .socialId(memberSignUpDto.getSocialId())
-
-
-
-
                 .build();
-        //member.passwordEncode(passwordEncoder);
         memberRepository.save(member);
+
+        // 이메일 인증 토큰 생성 및 발송
+        String token = java.util.UUID.randomUUID().toString();
+        EmailVerificationToken verificationToken = new EmailVerificationToken(token, member);
+        emailVerificationTokenRepository.save(verificationToken);
+        emailService.sendVerificationEmail(member.getEmail(), token);
 
 
     }
@@ -128,5 +133,33 @@ public class MemberService {
         else{
             return new ResponseEntity("사용 가능한 닉네임입니다.",HttpStatus.OK);
         }
+    }
+
+    @Transactional
+    public String verifyEmail(String token) {
+        EmailVerificationToken verificationToken = emailVerificationTokenRepository.findByToken(token)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "유효하지 않은 인증 토큰입니다."));
+        if (verificationToken.isExpired()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "만료된 인증 토큰입니다. 인증 메일을 재발송해주세요.");
+        }
+        verificationToken.verify();
+        verificationToken.getMember().setEmailVerified(true);
+        memberRepository.save(verificationToken.getMember());
+        emailVerificationTokenRepository.save(verificationToken);
+        return "이메일 인증이 완료되었습니다. 로그인해주세요.";
+    }
+
+    @Transactional
+    public void resendVerificationEmail(String email) {
+        Member member = memberRepository.findByEmail(email)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "존재하지 않는 이메일입니다."));
+        if (member.isEmailVerified()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 인증된 이메일입니다.");
+        }
+        emailVerificationTokenRepository.findByMember_Email(email)
+                .ifPresent(emailVerificationTokenRepository::delete);
+        String token = java.util.UUID.randomUUID().toString();
+        emailVerificationTokenRepository.save(new EmailVerificationToken(token, member));
+        emailService.sendVerificationEmail(email, token);
     }
 }

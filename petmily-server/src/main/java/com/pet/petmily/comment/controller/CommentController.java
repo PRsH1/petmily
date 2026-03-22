@@ -139,15 +139,18 @@ public class CommentController {
 
     }
 
-    @ApiOperation(value = "댓글 좋아요", notes = "댓글 좋아요 추가")
+    @ApiOperation(value = "댓글 좋아요", notes = "댓글 좋아요 추가/취소")
     @PostMapping("comment/{commentId}/like")
-    public ResponseEntity<String> likeComment(@PathVariable Long commentId) {
+    public ResponseEntity<String> likeComment(@PathVariable Long commentId, Authentication auth) {
+        UserDetails userDetails = (UserDetails) auth.getPrincipal();
+        Member member = memberRepository.findByEmail(userDetails.getUsername())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "유저가 존재하지 않습니다"));
         try {
-            commentService.likeComment(commentId);
-            return ResponseEntity.ok("댓글에 좋아요를 표시했습니다.");
+            String result = commentService.likeComment(commentId, member.getId());
+            return ResponseEntity.ok(result);
         } catch (Exception e) {
             log.error("댓글 좋아요 실패", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("댓글 좋아요 표시 중 오류가 발생했습니다.");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("댓글 좋아요 처리 중 오류가 발생했습니다.");
         }
     }
 }

@@ -2,6 +2,8 @@ package com.pet.petmily.comment.service;
 
 import com.pet.petmily.board.entity.Post;
 import com.pet.petmily.comment.entity.Comment;
+import com.pet.petmily.comment.entity.CommentLike;
+import com.pet.petmily.comment.repository.CommentLikeRepository;
 import com.pet.petmily.user.entity.Member;
 import com.pet.petmily.comment.dto.CommentDTO;
 import com.pet.petmily.user.repository.MemberRepository;
@@ -25,6 +27,7 @@ public class CommentService {
     private final CommentRepository commentRepository;
     private final MemberRepository memberRepository;
     private final PostRepository postRepository;
+    private final CommentLikeRepository commentLikeRepository;
 
     //댓글 목록 조회
     public List<CommentDTO> getCommentListByPost(Long postId) {
@@ -74,11 +77,24 @@ public class CommentService {
     }
 
     //댓글 좋아요
-    public void likeComment(Long commentId) {
+    @Transactional
+    public String likeComment(Long commentId, Long memberId) {
         Comment comment = commentRepository.findById(commentId)
                 .orElseThrow(() -> new IllegalArgumentException("없는 댓글입니다: " + commentId));
+        Member member = memberRepository.findById(memberId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "유저가 존재하지 않습니다."));
+
+        Optional<CommentLike> existing = commentLikeRepository.findByCommentAndMember(comment, member);
+        if (existing.isPresent()) {
+            commentLikeRepository.delete(existing.get());
+            comment.setCommentLike(Math.max(0, comment.getCommentLike() - 1));
+            commentRepository.save(comment);
+            return "좋아요가 취소되었습니다.";
+        }
+        commentLikeRepository.save(new CommentLike(comment, member));
         comment.setCommentLike(comment.getCommentLike() + 1);
         commentRepository.save(comment);
+        return "좋아요가 추가되었습니다.";
     }
 
     //댓글 작성자 확인

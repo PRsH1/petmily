@@ -96,6 +96,19 @@ public class MemberController extends BaseTimeEntity {
 
 
 
+    @ApiOperation(value = "이메일 인증", notes = "이메일 인증 링크 클릭 시 호출")
+    @GetMapping("/sign-up/verify-email")
+    public String verifyEmail(@RequestParam("token") String token) throws Exception {
+        return memberService.verifyEmail(token);
+    }
+
+    @ApiOperation(value = "인증 메일 재발송", notes = "인증 메일 재발송")
+    @PostMapping("/sign-up/resend-verification")
+    public String resendVerification(@RequestParam("email") String email) throws Exception {
+        memberService.resendVerificationEmail(email);
+        return "인증 메일이 재발송되었습니다.";
+    }
+
     @ApiOperation(value = "jwt-test", notes = "jwt-test")
     @GetMapping("/jwt-test")
     public String jwtTest() {

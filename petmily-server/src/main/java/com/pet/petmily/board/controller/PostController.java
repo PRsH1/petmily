@@ -7,6 +7,7 @@ import com.pet.petmily.board.entity.Post;
 import com.pet.petmily.board.repository.ChannelRepository;
 import com.pet.petmily.board.repository.PostRepository;
 import com.pet.petmily.board.response.ChannelResponse;
+import com.pet.petmily.board.response.PageResponse;
 import com.pet.petmily.board.response.Response;
 import com.pet.petmily.board.service.ChannelService;
 import com.pet.petmily.report.dto.ReportDTO;
@@ -174,10 +175,11 @@ public class PostController {
     }
     @ApiOperation(value = "채널 조회" , notes = "채널 조회")
     @GetMapping("/channel")
-    public Response getChannel(){
+    public PageResponse getChannel(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
         log.info("채널 조회");
-
-        return new Response("채널 조회 성공","채널 조회 성공",channelService.getChannel());
+        return channelService.getChannelPaged(page, size);
     }
     @ApiOperation(value = "게시판 작성", notes = "해당 channelId를 가진 채널에 게시물 작성")
     @PostMapping("/channel/{id}/post/write")
@@ -267,7 +269,7 @@ public class PostController {
         UserDetails userDetails = (UserDetails) authentication.getPrincipal();
         Member member = memberRepository.findByEmail(userDetails.getUsername())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "유저가 존재하지 않습니다"));
-        return new Response("좋아요 api 수행", "아래의 메세지를 확인해주세요", postService.likePost(channelId, postId));
+        return new Response("좋아요 api 수행", "아래의 메세지를 확인해주세요", postService.likePost(channelId, postId, member.getId()));
     }
     @ApiOperation(value= "게시글 신고" ,notes = "해당 postId를 가진 게시물에 신고")
     @PostMapping("/channel/{channelId}/post/{postId}/report")
@@ -384,40 +386,21 @@ public class PostController {
     }
     @ApiOperation(value = "게시판 검색", notes = "게시판 검색")
     @GetMapping("/post/search")
-    public Response searchPosts(@RequestParam("query") String query) {
-        try {
-            log.info("게시판 검색 api 진입");
-            log.info("검색어 : " + query);
-
-
-            List<Post> foundPosts = postService.searchPosts(query);
-
-            List<PostDTO> postDTOs = new ArrayList<>();
-            for (Post post : foundPosts) {
-                PostDTO postDTO = PostDTO.toDto(post);
-                postDTOs.add(postDTO);
-            }
-
-
-            return new Response<>("게시판 검색 성공", "게시판 검색 성공", postDTOs);
-        }catch (Exception e){
-            log.info("게시판 검색 실패");
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,e.getMessage());
-
-        }
+    public PageResponse searchPosts(
+            @RequestParam("query") String query,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        log.info("게시판 검색 api 진입, 검색어: {}", query);
+        return postService.searchPostsPaged(query, page, size);
     }
 
     @ApiOperation(value = "채널 이름 검색", notes = "채널 이름 검색")
     @GetMapping("/channel/search")
-    public Response searchChannels(@RequestParam("query") String query) {
-        List<Channel> foundChannels = channelService.searchChannels(query);
-        List<ChannelDTO> channelDTOs = new ArrayList<>();
-        for (Channel channel : foundChannels) {
-            ChannelDTO channelDTO = ChannelDTO.toDto(channel);
-            channelDTOs.add(channelDTO);
-        }
-
-        return new Response<>("채널 검색 성공", "채널 검색 성공", channelDTOs);
+    public PageResponse searchChannels(
+            @RequestParam("query") String query,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return channelService.searchChannelsPaged(query, page, size);
     }
 
 

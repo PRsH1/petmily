@@ -1,9 +1,8 @@
 package com.pet.petmily.user.handler;
 
-
-
 import com.pet.petmily.user.repository.MemberRepository;
 import com.pet.petmily.user.service.JwtService;
+import com.pet.petmily.user.service.LoginAttemptService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,6 +19,7 @@ public class LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHandler {
 
     private final JwtService jwtService;
     private final MemberRepository memberRepository;
+    private final LoginAttemptService loginAttemptService;
 
     @Value("${jwt.access.expiration}")
     private String accessTokenExpiration;
@@ -27,12 +27,11 @@ public class LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHandler {
     @Override
     public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response,
                                         Authentication authentication) {
-        String email = extractUsername(authentication); // 인증 정보에서 Username(email) 추출
-        String accessToken = jwtService.createAccessToken(email); // JwtService의 createAccessToken을 사용하여 AccessToken 발급
-        String refreshToken = jwtService.createRefreshToken(); // JwtService의 createRefreshToken을 사용하여 RefreshToken 발급
-        log.info("onAuthenticationSuccess");
+        String email = extractUsername(authentication);
+        String accessToken = jwtService.createAccessToken(email);
+        String refreshToken = jwtService.createRefreshToken();
 
-        jwtService.sendAccessAndRefreshToken(response, accessToken, refreshToken); // 응답 헤더에 AccessToken, RefreshToken 실어서 응답
+        jwtService.sendAccessAndRefreshToken(response, accessToken, refreshToken);
 
         memberRepository.findByEmail(email)
                 .ifPresent(member -> {
@@ -40,8 +39,10 @@ public class LoginSuccessHandler extends SimpleUrlAuthenticationSuccessHandler {
                     memberRepository.saveAndFlush(member);
                 });
 
-        log.info("로그인에 성공하였습니다. 이메일 : {}", email);
-        log.info("발급된 AccessToken 만료 기간 : {}", accessTokenExpiration);
+        loginAttemptService.loginSucceeded(email);
+
+        log.info("로그인 성공. 이메일: {}", email);
+        log.info("발급된 AccessToken 만료 기간: {}", accessTokenExpiration);
     }
 
     private String extractUsername(Authentication authentication) {

@@ -36,6 +36,7 @@ public class Member extends BaseTimeEntity {
 
     private String refreshToken;
     private boolean status;
+    private boolean emailVerified;
 
 
     // 유저 권한 설정 메소드
@@ -63,6 +64,7 @@ public class Member extends BaseTimeEntity {
         this.socialId = socialId;
         this.refreshToken = refreshToken;
         this.status = status;
+        this.emailVerified = false; // default false for regular signup
     }
     public void updateMember(MemberUpdateDTO memberUpdateDTO) {
         if (memberUpdateDTO.getEmail() != null) {
