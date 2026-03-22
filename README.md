@@ -30,13 +30,15 @@ petmily/
 | 기능 | 설명 |
 |------|------|
 | 회원 인증 | 이메일/비밀번호 로그인, Google·Naver OAuth2 소셜 로그인 |
+| 이메일 인증 | 회원가입 시 Gmail SMTP로 인증 메일 발송, 미인증 시 로그인 차단 |
+| 로그인 보호 | 5회 연속 실패 시 15분 잠금 (브루트포스 방지) |
 | JWT 인증 | AccessToken + RefreshToken 이중 토큰, RTR(Refresh Token Rotation) 방식 |
-| 채널 | 카테고리 기반 채널 생성·수정·삭제, 즐겨찾기 |
-| 게시글 | 채널별 게시글 CRUD, 조회수, 좋아요, 신고 (3회 누적 시 자동 삭제) |
-| 댓글 | 댓글 CRUD, 좋아요 |
+| 채널 | 카테고리 기반 채널 생성·수정·삭제, 즐겨찾기, 페이지네이션 |
+| 게시글 | 채널별 게시글 CRUD, 조회수, 좋아요 토글 (중복 불가), 신고 (3회 누적 시 자동 삭제), 페이지네이션 |
+| 댓글 | 댓글 CRUD, 좋아요 토글 (중복 불가) |
 | 스크랩 | 게시글 저장 및 관리 |
-| 파일 업로드 | AWS S3 연동 이미지 업로드 |
-| 검색 | 게시글 제목 검색, 채널명 검색 |
+| 파일 업로드 | AWS S3 연동 이미지 업로드 (10MB 제한, MIME 타입 검증) |
+| 검색 | 게시글 제목 검색, 채널명 검색 (페이지네이션 지원) |
 
 ---
 
@@ -97,6 +99,20 @@ spring:
       ddl-auto: update
     show-sql: true
 
+  # Gmail SMTP (이메일 인증 발송)
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: {GMAIL_ADDRESS}        # 예: example@gmail.com
+    password: {GMAIL_APP_PASSWORD}   # Gmail 앱 비밀번호 16자리 (공백 제거)
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+
 jwt:
   secretKey: {32자 이상의 시크릿 키}
   access:
@@ -133,6 +149,8 @@ spring.security.oauth2.client.registration:
     authorization-grant-type: authorization_code
     scope: email, name
 ```
+
+> **Gmail 앱 비밀번호 발급:** Google 계정 → 보안 → 2단계 인증 활성화 → 앱 비밀번호 → 16자리 비밀번호 생성 후 공백 제거하여 입력
 
 ```bash
 # 백엔드 실행
@@ -191,22 +209,28 @@ http://localhost:8080/swagger-ui/index.html
 ### 인증 (공개)
 
 ```
-POST /login                          # 로그인 (JSON body: {email, password})
-POST /sign-up                        # 회원가입
-POST /sign-up/email-check            # 이메일 중복 확인
-POST /sign-up/nickname-check         # 닉네임 중복 확인
+POST /login                                    # 로그인 (JSON body: {email, password})
+POST /sign-up                                  # 회원가입 (인증 메일 자동 발송)
+POST /sign-up/email-check                      # 이메일 중복 확인
+POST /sign-up/nickname-check                   # 닉네임 중복 확인
+GET  /sign-up/verify-email?token={uuid}        # 이메일 인증 확인
+POST /sign-up/resend-verification              # 인증 메일 재발송 (body: {email})
 ```
 
 ### 채널 / 게시글 (인증 필요)
 
 ```
-GET    /channel                      # 채널 목록
-POST   /channel                      # 채널 생성
-GET    /channel/{channelId}/post     # 채널별 게시글 목록
-POST   /channel/{id}/post/write      # 게시글 작성
-POST   /channel/{channelId}/post/{postId}/like    # 좋아요
-POST   /channel/{channelId}/post/{postId}/report  # 신고
-POST   /channel/{channelId}/bookmark              # 즐겨찾기 추가
+GET    /channel                                      # 채널 목록
+GET    /channel/paged?page=0&size=10                 # 채널 페이지네이션 조회
+POST   /channel                                      # 채널 생성
+GET    /channel/{channelId}/post                     # 채널별 게시글 목록
+GET    /channel/{channelId}/post/paged?page=0&size=10  # 채널 게시글 페이지네이션
+POST   /channel/{id}/post/write                      # 게시글 작성
+POST   /channel/{channelId}/post/{postId}/like       # 좋아요 토글
+POST   /channel/{channelId}/post/{postId}/report     # 신고
+POST   /channel/{channelId}/bookmark                 # 즐겨찾기 추가
+GET    /post/search/paged?query=&page=0&size=10      # 게시글 검색 페이지네이션
+GET    /channel/search/paged?query=&page=0&size=10   # 채널 검색 페이지네이션
 ```
 
 ### 댓글 / 스크랩 (인증 필요)
@@ -252,6 +276,35 @@ GET    /scrap                        # 내 스크랩 목록
 - 댓글 조회 N+1 쿼리 → `@EntityGraph` 로 단일 쿼리 처리
 - `likePost()` 메서드에 `@Transactional` 추가
 
+### 이슈 해결 (5개)
+
+#### 1. 좋아요 중복 방지
+- `PostLike`, `CommentLike` 엔티티 신규 추가 (`UniqueConstraint` 적용)
+- 좋아요 재클릭 시 취소되는 토글 방식으로 동작
+
+#### 2. 페이지네이션
+- `PageResponse<T>` 공통 응답 포맷 신규 추가 (`currentPage`, `totalPages`, `totalElements`, `size`)
+- 채널·게시글·검색 API에 `?page=0&size=10` 파라미터 지원
+
+#### 3. 로그인 시도 횟수 제한
+- `LoginAttemptService` 신규 추가 (ConcurrentHashMap 인메모리)
+- 5회 실패 시 15분 잠금 → `LockedException` throw
+
+#### 4. 이메일 인증
+- 회원가입 시 UUID 인증 토큰 생성 → Gmail SMTP로 인증 메일 자동 발송 (`@Async`)
+- `EmailVerificationToken` 24시간 만료
+- 미인증 계정으로 로그인 시 차단
+- `/sign-up/verify-email`, `/sign-up/resend-verification` 엔드포인트 추가
+
+#### 5. 파일 업로드 검증
+- 최대 10MB, 허용 MIME `image/jpeg·png·gif·webp` 제한 추가
+
+### Gmail SMTP 설정
+
+- `spring-boot-starter-mail` 의존성 추가 (`build.gradle`)
+- `@EnableAsync` 추가 (`PetmilySubApplication.java`)
+- `application.yml`에 Gmail SMTP 설정 항목 추가
+
 ### 신규 추가
 
 - **프론트엔드 전체 구축** (`petmily-client/`) — React 18 + Vite 기반 SPA
@@ -262,11 +315,9 @@ GET    /scrap                        # 내 스크랩 목록
 
 ## 📌 알려진 미해결 이슈
 
-- [ ] 게시글·댓글 좋아요 중복 방지 미구현 (별도 Like 엔티티 필요)
-- [ ] 목록 조회 API에 페이지네이션 미적용
-- [ ] 로그인 시도 횟수 제한 없음
-- [ ] 회원가입 시 이메일 인증 없음
-- [ ] 파일 업로드 크기·타입 검증 없음
+- [ ] API 버전 관리 미적용 (`/v1/` 등)
+- [ ] 로그인 잠금이 서버 재시작 시 초기화됨 (인메모리 → Redis 전환 권장)
+- [ ] OAuth2 소셜 로그인 시 이메일 인증 우회 가능
 
 ---
 

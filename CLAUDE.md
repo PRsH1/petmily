@@ -38,14 +38,19 @@ src/main/java/com/pet/petmily/
 │   ├── controller/     PostController.java
 │   ├── dto/            PostDTO.java, ChannelDTO.java
 │   ├── entity/         Post.java, Channel.java, Category.java, Favorite.java
+│   │                   PostLike.java (신규)
 │   ├── repository/     PostRepository.java, ChannelRepository.java ...
+│   │                   PostLikeRepository.java (신규)
 │   ├── response/       Response.java, ChannelResponse.java
+│   │                   PageResponse.java (신규 - 페이지네이션 공통 응답)
 │   └── service/        PostService.java, ChannelService.java
 ├── comment/
 │   ├── controller/     CommentController.java
 │   ├── dto/            CommentDTO.java
 │   ├── entity/         Comment.java
+│   │                   CommentLike.java (신규)
 │   ├── repository/     CommentRepository.java
+│   │                   CommentLikeRepository.java (신규)
 │   ├── response/       CommentResponse.java, CommentAndPostResponse.java
 │   └── service/        CommentService.java
 ├── scrap/
@@ -64,6 +69,7 @@ src/main/java/com/pet/petmily/
 │   ├── controller/     MemberController.java
 │   ├── dto/            MemberSignUpDto.java, MemberUpdateDTO.java
 │   ├── entity/         Member.java, BaseTimeEntity.java, Role.java, SocialType.java
+│   │                   EmailVerificationToken.java (신규 - UUID 토큰, 24시간 만료)
 │   ├── filter/         JwtAuthenticationProcessingFilter.java
 │   │                   CustomJsonUsernamePasswordAuthenticationFilter.java
 │   ├── handler/        LoginSuccessHandler.java, LoginFailureHandler.java
@@ -72,7 +78,10 @@ src/main/java/com/pet/petmily/
 │   │   ├── service/    CustomOAuth2UserService.java
 │   │   └── userinfo/   GoogleOAuth2UserInfo.java, NaverOAuth2UserInfo.java
 │   ├── repository/     MemberRepository.java
+│   │                   EmailVerificationTokenRepository.java (신규)
 │   ├── service/        JwtService.java, LoginService.java, MemberService.java
+│   │                   EmailService.java (신규 - @Async Gmail SMTP 발송)
+│   │                   LoginAttemptService.java (신규 - 5회/15분 잠금)
 │   └── util/           PasswordUtil.java
 ├── s3/
 │   ├── component/      S3Component.java
@@ -107,6 +116,20 @@ spring:
     username: {DB_USER}
     password: {DB_PASSWORD}
 
+  # Gmail SMTP (이메일 인증 발송용)
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: {GMAIL_ADDRESS}           # 예: example@gmail.com
+    password: {GMAIL_APP_PASSWORD}      # Gmail 앱 비밀번호 16자리 (공백 제거)
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+
 jwt:
   secretKey: {최소 32자 이상의 시크릿 키}
   access:
@@ -125,10 +148,19 @@ cloud:
       static: ap-northeast-2
     s3:
       bucket: {S3_BUCKET_NAME}
+    stack:
+      auto: false
 
 app:
   base-url: http://localhost:8080   # 게시글·채널 URL 생성에 사용
 ```
+
+#### Gmail 앱 비밀번호 발급 방법
+
+1. Google 계정 → **보안** → 2단계 인증 활성화
+2. **보안** → **앱 비밀번호** 메뉴 접속
+3. 앱 선택: `메일`, 기기 선택: `Windows 컴퓨터` (또는 임의 선택)
+4. 생성된 **16자리 앱 비밀번호** (공백 제거 후) `application.yml`의 `mail.password`에 입력
 
 ### API 엔드포인트 요약
 
@@ -136,32 +168,38 @@ app:
 | Method | URL | 설명 |
 |--------|-----|------|
 | POST | `/login` | JSON 로그인 (body: `{email, password}`) |
-| POST | `/sign-up` | 회원가입 |
+| POST | `/sign-up` | 회원가입 (이메일 인증 메일 자동 발송) |
 | POST | `/sign-up/email-check` | 이메일 중복 확인 |
 | POST | `/sign-up/nickname-check` | 닉네임 중복 확인 |
+| GET | `/sign-up/verify-email?token={uuid}` | 이메일 인증 토큰 검증 |
+| POST | `/sign-up/resend-verification` | 인증 메일 재발송 (body: `{email}`) |
 
 #### 채널
 | Method | URL | 설명 |
 |--------|-----|------|
 | GET | `/channel` | 전체 채널 조회 |
+| GET | `/channel/paged?page=0&size=10` | 채널 페이지네이션 조회 |
 | POST | `/channel` | 채널 생성 |
 | PUT | `/channel/update/{id}` | 채널 수정 (본인만) |
 | DELETE | `/channel/delete/{id}` | 채널 삭제 (본인만, cascade) |
 | GET | `/channel/mypage` | 내가 만든 채널 |
 | GET | `/channel/search?query=` | 채널 검색 |
+| GET | `/channel/search/paged?query=&page=0&size=10` | 채널 검색 페이지네이션 |
 
 #### 게시글
 | Method | URL | 설명 |
 |--------|-----|------|
 | GET | `/channel/{channelId}/post` | 채널 게시글 목록 |
+| GET | `/channel/{channelId}/post/paged?page=0&size=10` | 채널 게시글 페이지네이션 조회 |
 | GET | `/channel/{channelId}/post/{id}` | 게시글 상세 (조회수 +1) |
 | POST | `/channel/{id}/post/write` | 게시글 작성 |
 | PUT | `/channel/{channelId}/post/update/{id}` | 게시글 수정 (본인만) |
 | DELETE | `/channel/{channelId}/post/delete/{id}` | 게시글 삭제 (본인만) |
-| POST | `/channel/{channelId}/post/{postId}/like` | 좋아요 |
+| POST | `/channel/{channelId}/post/{postId}/like` | 좋아요 토글 (인증 필수) |
 | POST | `/channel/{channelId}/post/{postId}/report` | 신고 (3회 누적 시 자동 삭제) |
 | GET | `/post/mypage` | 내가 쓴 게시글 |
 | GET | `/post/search?query=` | 게시글 검색 |
+| GET | `/post/search/paged?query=&page=0&size=10` | 게시글 검색 페이지네이션 |
 
 #### 즐겨찾기
 | Method | URL | 설명 |
@@ -386,33 +424,6 @@ export default function PageName() {
 
 ---
 
-## 도메인 모델
-
-```
-Category (1) ──── (N) Channel (1) ──── (N) Post (1) ──── (N) Comment
-                      │                    │
-                      │                    ├── (N) Report
-                      │                    └── (N) Scrap
-                      │
-                   (N) Favorite
-
-Member ──── Channel  (개설자)
-Member ──── Post     (작성자)
-Member ──── Comment  (작성자)
-Member ──── Favorite (즐겨찾기)
-Member ──── Scrap    (스크랩)
-Member ──── Report   (신고자)
-```
-
-### 주요 비즈니스 규칙
-- 게시글 신고 3회 누적 시 자동 삭제
-- 자신의 게시글은 신고·즐겨찾기 불가
-- 채널 삭제 시 하위 게시글·댓글 모두 cascade 삭제
-- 이메일·닉네임은 전체 유니크
-- 비밀번호 변경 시 현재 비밀번호 일치 확인 필수
-
----
-
 ## 주요 작업 이력
 
 ### 버그 수정
@@ -442,17 +453,78 @@ Member ──── Report   (신고자)
 | `comment/repository/CommentRepository.java` | `@EntityGraph(attributePaths = {"member"})` 추가로 N+1 쿼리 제거 |
 | `comment/controller/CommentController.java` | `addComment` 중복 DB 쿼리 → 단일 `orElseThrow()` 으로 개선 |
 
+### 이슈 해결 (5개)
+
+#### 1. 좋아요 중복 방지
+- **신규 파일**: `board/entity/PostLike.java`, `comment/entity/CommentLike.java`
+- `UniqueConstraint(columnNames = {"post_id", "member_id"})` 적용
+- 좋아요 → 이미 있으면 취소(DELETE), 없으면 추가(INSERT) 토글 방식
+
+#### 2. 페이지네이션 적용
+- **신규 파일**: `board/response/PageResponse.java`
+- `PostRepository`, `ChannelRepository`에 `Pageable` 쿼리 메서드 추가
+- 신규 API: `/channel/paged`, `/post/search/paged`, `/channel/search/paged`
+- 응답: `{ currentPage, totalPages, totalElements, size, data }`
+
+#### 3. 로그인 시도 횟수 제한
+- **신규 파일**: `user/service/LoginAttemptService.java`
+- `ConcurrentHashMap` 인메모리 방식, 5회 실패 시 15분 잠금
+- `LoginFailureHandler` → 실패 카운트 증가
+- `LoginSuccessHandler` → 잠금 해제
+- `LoginService` → 잠금 상태 확인 후 `LockedException` throw
+
+#### 4. 이메일 인증
+- **신규 파일**: `user/entity/EmailVerificationToken.java`, `user/repository/EmailVerificationTokenRepository.java`
+- **신규 파일**: `user/service/EmailService.java` (`@Async` 비동기 Gmail SMTP 발송)
+- 회원가입 시 UUID 토큰 생성 → 인증 메일 발송 (24시간 만료)
+- `/sign-up/verify-email?token=` : 토큰 검증 후 `member.emailVerified = true`
+- `/sign-up/resend-verification` : 인증 메일 재발송
+- `LoginService` → `emailVerified = false` 시 로그인 차단
+- `build.gradle` → `spring-boot-starter-mail` 의존성 추가
+- `PetmilySubApplication.java` → `@EnableAsync` 추가
+
+#### 5. 파일 업로드 검증
+- `s3/service/FileUploadService.java` → `validateFile()` 메서드 추가
+- 최대 크기: 10MB
+- 허용 MIME: `image/jpeg`, `image/png`, `image/gif`, `image/webp`
+- 허용 확장자: `.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`
+
+### Gmail SMTP 설정
+- `application.yml`에 Gmail SMTP 항목 추가 (host, port, username, password, STARTTLS)
+- 앱 비밀번호 방식 (Google 계정 → 보안 → 2단계 인증 → 앱 비밀번호 16자리)
+
 ### 프론트엔드 신규 구축 (`petmily-client/`)
 
 React 18 + Vite 기반 SPA 전체 구축. 백엔드의 모든 주요 API와 연동.
 
 ---
 
+## 도메인 모델
+
+```
+Category (1) ──── (N) Channel (1) ──── (N) Post (1) ──── (N) Comment
+                      │                    │                   │
+                      │                    ├── (N) Report      └── (N) CommentLike
+                      │                    ├── (N) Scrap
+                      │                    └── (N) PostLike
+                      │
+                   (N) Favorite
+
+Member ──── Channel          (개설자)
+Member ──── Post             (작성자)
+Member ──── Comment          (작성자)
+Member ──── Favorite         (즐겨찾기)
+Member ──── Scrap            (스크랩)
+Member ──── Report           (신고자)
+Member ──── PostLike         (게시글 좋아요)
+Member ──── CommentLike      (댓글 좋아요)
+Member ──── EmailVerificationToken  (이메일 인증)
+```
+
+---
+
 ## 알려진 미해결 이슈 (TODO)
 
-- [ ] 게시글·댓글 좋아요 중복 방지 (별도 Like 엔티티 테이블 필요)
-- [ ] 모든 목록 API에 페이지네이션 미적용 (대용량 시 성능 문제)
-- [ ] 로그인 시도 횟수 제한 없음 (브루트포스 취약)
-- [ ] 이메일 인증 없는 회원가입
-- [ ] 파일 업로드 크기/타입 검증 없음
 - [ ] API 버전 관리 미적용 (`/v1/` 등)
+- [ ] 로그인 시도 횟수 제한이 서버 재시작 시 초기화됨 (인메모리 → Redis 전환 권장)
+- [ ] OAuth2 소셜 로그인 시 이메일 인증 우회 가능 (소셜 계정은 이미 인증된 이메일로 간주)
